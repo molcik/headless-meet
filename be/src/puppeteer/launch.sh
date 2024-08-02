@@ -2,8 +2,8 @@
 
 killall chromium-browser
 
-export DISPLAY=:1
-Xvfb :1 -screen 0 1024x768x16 &
+export DISPLAY=:99
+Xvfb :99 -screen 0 1024x768x16 &
 sleep 1
 
 chromium-browser "https://meet.google.com/$1" --use-fake-ui-for-media-stream
