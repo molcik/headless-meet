@@ -1,0 +1,15 @@
+# /lib/systemd/system/headless-meet.service
+
+[Unit]
+Description=Headless meet webcam
+Documentation=https://github.com/molcik
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+ExecStart=/bin/bash /home/pi/Documents/headless-meet/start.sh
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

@@ -1,10 +1,8 @@
 import { Module } from '@nestjs/common';
-import { PuppeteerModule } from './puppeteer/puppeteer.module';
-import { ConfigModule } from '@nestjs/config'
-
+import { ChromectlModule } from './chromectl/chromectl.module';
 
 @Module({
-  imports: [PuppeteerModule, ConfigModule.forRoot({isGlobal: true})],
+  imports: [ChromectlModule],
 })
 
 export class AppModule {}

@@ -6,6 +6,8 @@ export default function Home() {
   const [formData, setFormData] = useState({
     id: ""
   });
+  const [isLoading, setIsLoading] = useState(false)
+  const [errorMessage, setErrorMessage] = useState("")
 
   const handleInput = (event: ChangeEvent<HTMLInputElement>) => {
     const fieldName = event.target.name;
@@ -19,11 +21,18 @@ export default function Home() {
 
   const onJoin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    setIsLoading(true)
+    setTimeout(() => { setIsLoading(false) }, 60000)
     const res = await fetch(`/api/join/${formData.id}`)
-    console.log(res)
+    if (res.status !== 200) {
+      console.log(res)
+      setIsLoading(false)
+      setErrorMessage(res.statusText)
+    }
   }
 
-  const onEnd = () => {
+  const onEnd = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
     fetch(`/api/end`)
   }
 
@@ -45,10 +54,13 @@ export default function Home() {
         <div className="flex space-x-4">
          
           <button type="submit"
-            className="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm w-full sm:w-auto px-5 py-2.5 text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800">Join</button>
-
+            className="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm w-full sm:w-auto px-5 py-2.5 text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800"
+            disabled={isLoading}
+            >{isLoading ? "Loading..." : "Join"}</button>
         </div>
       </form>
+
+      {errorMessage ? `Error: ${errorMessage}`: ""}
 
       <form onSubmit={onEnd}>
         <button type="submit"

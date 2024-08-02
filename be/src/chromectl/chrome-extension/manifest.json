@@ -3,6 +3,13 @@
   "name": "Hello Extensions",
   "description": "Base Level Extension",
   "version": "1.0",
+  "content_scripts": [
+    {
+      "matches": ["https://meet.google.com/*"],
+      "js": ["content-script.js"],
+      "run_at": "document_idle"
+    }
+  ],
   "action": {
     "default_popup": "hello.html",
     "default_icon": "icon.png"

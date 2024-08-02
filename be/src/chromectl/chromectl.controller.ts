@@ -1,12 +1,12 @@
 import { Controller, Get, Param } from '@nestjs/common';
-import { PuppeteerService } from './puppeteer.service';
+import { ChromectlService } from './chromectl.service';
 
 @Controller('/api')
-export class PuppeteerController {
+export class ChromectlController {
 
 
   constructor(
-    private readonly bashService: PuppeteerService
+    private readonly bashService: ChromectlService
   ) {}
 
     @Get('join/:meetingId')

@@ -31,3 +31,7 @@ body {
     text-wrap: balance;
   }
 }
+
+button:disabled {
+  opacity: 50%;
+}
