@@ -1,7 +1,6 @@
 #!/bin/bash
 
-echo "Hi There!"
-
+killall chromium-browser
 chromium-browser "https://meet.google.com/$1" --use-fake-ui-for-media-stream
 
 sleep 12

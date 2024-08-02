@@ -26,10 +26,17 @@ export class PuppeteerService {
 
   async end(): Promise<string> {
   
-    return "Not implemented"
+    const output = child.exec(`./src/puppeteer/end.sh`, (error, stdout, stderr) => {
+      console.log(stdout);
+      console.log(stderr);
+      if (error !== null) {
+          console.log(`exec error: ${error}`);
+      }
+    });
+
+    return "Shuting down meeting..."
 
   }
-
 
 
 }
