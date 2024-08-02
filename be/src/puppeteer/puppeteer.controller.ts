@@ -1,7 +1,7 @@
 import { Controller, Get, Param } from '@nestjs/common';
 import { PuppeteerService } from './puppeteer.service';
 
-@Controller('/')
+@Controller('/api')
 export class PuppeteerController {
 
 
