@@ -19,12 +19,12 @@ export default function Home() {
 
   const onJoin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    const res = await fetch(`http://localhost:3000/join/${formData.id}`)
+    const res = await fetch(`/api/join/${formData.id}`)
     console.log(res)
   }
 
   const onEnd = () => {
-    fetch(`http://localhost:3000/end`)
+    fetch(`/api/end`)
   }
 
   return (
