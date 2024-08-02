@@ -10,7 +10,7 @@ export class PuppeteerService {
   async join(meetingId): Promise<string> {
 
     const regex = /^[a-zA-Z0-9-]+$/;
-    if (!regex.test(meetingId)) throw new Error(`Meeting ID ${meetingId} is not in format xxx-xxx-xxx`)
+    if (!regex.test(meetingId)) throw new Error(`Meeting ID ${meetingId} can only contain letters, numbers and hyphens.`)
 
     const output = child.exec(`./src/puppeteer/launch.sh ${meetingId}`, (error, stdout, stderr) => {
       console.log(stdout);
