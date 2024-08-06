@@ -1,5 +1,7 @@
 # Remote Webcam for Video Meetings
 
+![ui](readme/ui.png)
+
 This project provides a convenient solution for connecting a webcam to video meetings remotely, using a Raspberry Pi positioned behind your TV. It eliminates the need to connect the webcam directly to your computer, offering greater flexibility and a streamlined setup.
 
 ## Problem
@@ -45,9 +47,13 @@ Installation:
 Usage:
 Access `http://webcam.local` from your main computer's web browser.
 
-Enter the meeting ID and join your video conference.
+Enter the meeting ID and join your video meeting (can take around 30s, depending on your raspberrypi).
 
 _Note: To access the web interface, your main computer and Raspberry Pi must be on the same local network._
+
+![gmeet-id](readme/gmeet-id.png)
+![admit-webcam-in-meet](readme/admit-webcam-in-meet.png)
+![meeting-room-joined](readme/meeting-room-joined.png)
 
 ## Contributing
 
