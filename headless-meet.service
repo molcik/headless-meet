@@ -1,15 +1,18 @@
-# /lib/systemd/system/headless-meet.service
+# Template. install.sh replaces @REPO_DIR@ and @RUN_USER@ and writes the result
+# to /etc/systemd/system/headless-meet.service.
 
 [Unit]
 Description=Headless meet webcam
-Documentation=https://github.com/molcik
+Documentation=https://github.com/molcik/headless-meet
 After=network.target
 
 [Service]
 Type=simple
-User=pi
-ExecStart=/bin/bash /home/pi/Documents/headless-meet/start.sh
+User=@RUN_USER@
+WorkingDirectory=@REPO_DIR@
+ExecStart=/bin/bash @REPO_DIR@/run.sh
 Restart=on-failure
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
