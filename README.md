@@ -31,17 +31,18 @@ The project employs two key components:
 
 The project includes scripts to simplify the installation and usage process:
 
-install.sh: Installs required dependencies (Nginx, Node.js, npm), builds the frontend and backend applications, configures Nginx, and sets up a Linux service to run the project automatically on startup.
-run.sh: Initiates the project (also used by the Linux service).
+- `install.sh` installs the system packages (nginx, Node.js, npm, Chromium), builds the backend and the frontend, configures nginx and installs `headless-meet.service`, which starts the project at boot. You can run it again after an update.
+- `run.sh` starts the backend and the frontend. The service runs it. It does not build.
 
-Clone the Repository:
+Clone the repository on the Raspberry Pi:
 ```Bash
-git clone https://github.com/<your-username>/remote-webcam-project.git
+git clone https://github.com/molcik/headless-meet.git
+cd headless-meet
 ```
 
 Installation:
 ```Bash
-./install.sh
+sudo ./install.sh
 ```
 
 Usage:
@@ -54,6 +55,15 @@ _Note: To access the web interface, your main computer and Raspberry Pi must be 
 ![gmeet-id](readme/gmeet-id.png)
 ![admit-webcam-in-meet](readme/admit-webcam-in-meet.png)
 ![meeting-room-joined](readme/meeting-room-joined.png)
+
+## Use it from your AI assistant
+
+The camera has an MCP server at `http://webcam.local/mcp` with the tools `join`, `leave` and `status`.
+Claude Code, Claude Desktop, VS Code with GitHub Copilot and other MCP clients on the local network can
+send the camera into a Google Meet meeting, for example before each meeting in your calendar.
+
+The guide with the set-up steps and a ready automation prompt is at `http://webcam.local/mcp/guide`
+and in [docs/mcp-guide.md](docs/mcp-guide.md).
 
 ## Contributing
 
