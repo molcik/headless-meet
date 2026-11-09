@@ -185,3 +185,105 @@ or refuse a call that waited for the lock for more than about 30 s.
 3. The guide on a second computer in the office network with `webcam.local` (mDNS). I used one Mac and `localhost`.
 4. Claude Desktop itself and VS Code with Copilot. Only the `mcp-remote` bridge was tested.
 5. The automation with a real Google Calendar.
+
+## 9. Round 2 (kolo 2)
+
+Tested commit: `634ec02` on `feat/1-mcp-server`. Date: 9. 11. 2026. Tester: Arthur Dent.
+New tests: commit `fac604e` (`be/src/chromectl/chromectl.service.findings.spec.ts`).
+
+Result: bugs 1 to 6 are fixed. Criteria 1 to 7 and 9 pass again. I found 1 new low bug (bug 7) and 6 notes.
+Verdict: ready for approval. Bug 7 is low and can wait for a follow-up.
+
+### 9.1 Test environment
+
+| Item | Value |
+|---|---|
+| Pi-like stack | Own image from `git archive 634ec02`: Docker `node:18.19.0-bookworm`, nginx 1.22.1 with the repo `nginx.conf`, psmisc `killall`, `run.sh` as user `pi`, `docker run --init`, nginx on `localhost:8281` |
+| Fake Chromium | `/usr/bin/chromium-browser` is a bash wrapper with `exec`, as on the Pi. It starts a C program with the process name `chromium-browse`. Files in `/tmp/fake` make it exit with code 3 at once, exit after N ms, or wait N s after `SIGTERM`. |
+| Native run | macOS, Node 26.9.0, BE on port 3211 |
+| Clients | Claude Code 2.1.301 (`claude mcp add --transport http --scope local`), Python JSON-RPC scripts, `curl`, Playwright 1.65 (iPhone 13 and desktop 1280 × 800) |
+
+Container set-up lesson: without `--init`, PID 1 in the container is `su`. It does not reap zombie processes, and
+`killall -w` waits its full 10 s for a zombie. This explains the 10.2 s switches in round 1 (bug 6). On the Pi,
+systemd reaps the processes.
+
+### 9.2 Automatic tests
+
+| Check | macOS, Node 26 | Docker, Node 18.19 |
+|---|---|---|
+| `npx jest` (unit) at `634ec02` | 61 passed | 61 passed |
+| `jest --config ./test/jest-e2e.json` | 23 passed | 23 passed |
+| `eslint` without `--fix`, `npm run build` (BE and FE) | OK | OK |
+| Unit tests with the new tests (`fac604e`) | 65 passed (1 `it.failing` for bug 7) | 65 passed |
+
+### 9.3 Bugs 1 to 6
+
+| Bug | Status | Evidence (own reproduction from section 6) |
+|---|---|---|
+| 1 | Fixed | Fake exits with code 3: MCP `join` gives `isError: true`, `launch_failed`, "The camera could not start Chromium: Chromium exited right after the start (code=3, signal=null)." `status` is `idle`. `/api/join/rrr-tttt-yyy` gives 500. Exit after 1.5 s gives `launch_failed`. Exit after 2.5 s gives `joined`, and `status` becomes `idle` (boundary, as designed). Claude Code (Haiku) told the user that the camera could not start Chromium and that the status is idle. |
+| 2 | Fixed | Hand-started Chromium in the container, state `idle`. `leave` with `jan-abcd-efg` gives `was_idle`, the process lives. `leave` without arguments and `/api/end` stop it. MCP `join` stops it before the start. |
+| 3 | Fixed | `requestedBy` = 79 × `a` + `😀` + `b` gives `startedBy` = 79 × `a` + `😀`. The raw JSON of `status` has no `\ud83d`. Flag emoji, family emoji with ZWJ and 50 × `e` + combining accent do not give a lone surrogate. |
+| 4 | Fixed | `GET /mcp/guide` through nginx, line 130: "Read my calendar from 10 minutes ago until 10 minutes from now." Architecture section 8 has the same text. |
+| 5 | Fixed | Guide line 82: "In VS Code, the workspace file `.vscode/mcp.json` uses the key `servers` instead of `mcpServers`." |
+| 6 | Fixed | Fake waits 5 s after `SIGTERM`, 8 parallel `join` with `force` through nginx: 4 `joined`, 4 `queue_timeout`, all HTTP 200, longest answer 33.1 s, 1 process at the end. Fake ignores `SIGTERM` (stop needs the `KILL` after 10 s), 4 `join` and 4 `leave` in parallel: longest answer 36 s, no 504, 0 processes after the last `leave`. Web UI path: 4 parallel `/api/join` and `/api/end` give 200, 200, 200, 503, and 503 for `/api/end`. Claude Code under load got "The camera is busy with other requests. Nothing was changed. Try again in a minute." |
+
+### 9.4 Regression
+
+| # | Result | Evidence |
+|---|---|---|
+| 1 | Pass | `claude mcp list`: `webcam-t2: http://localhost:8281/mcp (HTTP) - ✔ Connected`. Claude Code lists `join`, `leave`, `status`. |
+| 2 | Pass | 38 bad inputs from section 4.1 plus `../` paths, CRLF and `/lookup/abc` give `invalid_meeting`. 9 good inputs give `joined`. The launch log has only `https://meet.google.com/abc-defg-hij --use-fake-ui-for-media-stream --load-extension=/home/pi/hm/be/src/chromectl/chrome-extension`. `/tmp/pwned` does not exist. Wrong types give `-32602`. |
+| 3 | Pass | Same arguments as in round 1. `status` shows the code and `startedAt`. |
+| 4 | Pass | Busy refusal names `jan-abcd-efg`, the start time and "Jana (mcp)". `force` switches, 1 process. Jana's `leave` with her code after Petr's switch gives `not_in_that_meeting`. |
+| 5 | Pass | `leave` gives `left`, idle `leave` gives `was_idle`. |
+| 6 | Pass, with bug 7 | Fields as in round 1. |
+| 7 | Pass | `GET /mcp/guide` through nginx is `text/plain; charset=utf-8` and identical to `docs/mcp-guide.md`. Second machine not tested (section 8). |
+| 8 | Not checked on the Pi | `install.sh`, `run.sh`, `nginx.conf` and the unit template did not change in round 2. The stack starts with `run.sh` and the repo `nginx.conf`. |
+| 9 | Pass | Playwright, iPhone 13 and desktop: Join gives 200 and `source: "web"`, End gives `idle`, `x;reboot` shows "Error: Bad Request". No horizontal scroll. |
+
+Concurrency: 8 parallel `join` without `force` from idle give 1 `joined` and 7 `busy`. `kill -SEGV` during a meeting
+gives `idle`, and the next `join` works without `force`.
+
+Time cost of the bug 1 fix: `join` from idle takes 2.1 s (was 0.1 s). A switch and `/api/join` take 4.1 s, because
+`killall -w` needs about 2 s and the start check 2 s.
+
+### 9.5 New bug
+
+#### Bug 7 (low): a lone surrogate in `requestedBy` still reaches `status`
+
+Bug 3 is fixed for the cut at 80. But `cleanName` does not remove a lone surrogate that the client sends itself.
+The JSON of `status` then has the same broken character as in bug 3.
+
+Reproduction (Docker stack):
+
+1. Call MCP `join` with `meeting: "jan-abcd-efg"`, `force: true` and `requestedBy: "Jana\ud83d"` (JSON escape).
+2. Call `status` with `curl`.
+3. Result: the raw JSON has `"startedBy":"Jana\ud83d"`. Python `s.encode("utf-8")` raises `UnicodeEncodeError`.
+
+One broken client can break the `status` answer for all other clients until the next `join` or `leave`.
+Proposal: in `cleanName`, remove lone surrogates, for example `.replace(/\p{Surrogate}/gu, '')`.
+`String.prototype.toWellFormed` does not exist in Node 18. Test: `removes a lone surrogate from the input`
+(`it.failing` in `fac604e`).
+
+### 9.6 Notes (no change necessary)
+
+4. During the 2 s start check, `status` already shows `in_meeting`. When the check fails, `status` becomes `idle`.
+   A parallel `join` waits in the queue and is not refused, so only a reader of `status` sees the short wrong state.
+5. The queue limit counts per call. A later call can run while earlier calls are refused: with Claude Code under
+   load, calls 3 and 4 got `queue_timeout`, and the later Claude Code call joined. A refused call changes nothing,
+   so the result is correct, but the order is not first come, first served.
+6. A refused call gets `queue_timeout` when its turn comes, not at 25 s. I saw 25 s to 36 s. The maximum is about
+   25 s plus one switch (about 12 s with the `KILL` path). This is below the 60 s of nginx.
+7. Web UI: when Chromium cannot start, the page shows "Error: Internal Server Error" (generic 500 body). The End
+   button ignores the answer, so a 503 from `/api/end` shows nothing. The web UI was like this before (out of scope).
+8. `leave` with the code of a meeting that someone started by hand gives `was_idle`, and that Chromium stays. This is
+   the intended result of the bug 2 fix. Only `leave` without arguments or `/api/end` stops it.
+9. Implementation decision 3 (Chromium hands the URL to an old instance and exits with 0) is not reproducible with
+   `killall -w`. If it happens after a stop time-out, the camera runs an untracked meeting, and with the bug 2 fix
+   only `leave` without arguments stops it.
+
+### 9.7 Not tested in round 2
+
+1. The Pi itself. SSH as `pi` with my key was refused (`Permission denied (publickey,password)`), and the task forbids
+   changes. Real Chromium 125: how long a failed start takes, and if a normal start can exit within 2 s.
+2. Items 2 to 5 of section 8 are still open.
