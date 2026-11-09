@@ -6,6 +6,10 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import * as request from 'supertest';
 import { AppModule } from '../src/app.module';
+import {
+  ChromectlService,
+  QueueTimeoutError,
+} from '../src/chromectl/chromectl.service';
 import { ChromiumLauncher } from '../src/chromectl/chromium.launcher';
 import { FakeChromiumLauncher } from './fake-chromium.launcher';
 
@@ -216,6 +220,44 @@ describe('MCP server (e2e, fake Chromium)', () => {
     });
   });
 
+  it('reports Chromium that exits right after the start, and stays idle', async () => {
+    const client = await connect('petr');
+    launcher.exitAtStartNextLaunch = true;
+
+    const failed = await call(client, 'join', { meeting: A });
+
+    expect(failed.isError).toBe(true);
+    expect(failed.structuredContent).toMatchObject({ error: 'launch_failed' });
+    expect(failed.content[0].text).toBe(
+      'The camera could not start Chromium: Chromium exited right after the start (code=1, signal=null).',
+    );
+    expect((await call(client, 'status')).structuredContent).toEqual({
+      state: 'idle',
+    });
+  });
+
+  it('refuses a call that waited too long for other calls', async () => {
+    const client = await connect('petr');
+    const service = app.get(ChromectlService);
+    jest
+      .spyOn(service, 'join')
+      .mockRejectedValueOnce(new QueueTimeoutError(26_000));
+    jest
+      .spyOn(service, 'leave')
+      .mockRejectedValueOnce(new QueueTimeoutError(26_000));
+
+    const join = await call(client, 'join', { meeting: A, force: true });
+    const leave = await call(client, 'leave');
+
+    for (const refused of [join, leave]) {
+      expect(refused.isError).toBe(true);
+      expect(refused.structuredContent).toEqual({ error: 'queue_timeout' });
+      expect(refused.content[0].text).toBe(
+        'The camera is busy with other requests. Nothing was changed. Try again in a minute.',
+      );
+    }
+  });
+
   describe('web UI REST endpoints', () => {
     it('GET /api/join switches the camera and status shows source web', async () => {
       const client = await connect('jana');
@@ -254,6 +296,28 @@ describe('MCP server (e2e, fake Chromium)', () => {
       launcher.failNextLaunch = new Error('ENOENT');
       const response = await request(app.getHttpServer()).get(`/api/join/${A}`);
       expect(response.status).toBe(500);
+    });
+
+    it('GET /api/join returns 500 when Chromium exits right after the start', async () => {
+      launcher.exitAtStartNextLaunch = true;
+      const response = await request(app.getHttpServer()).get(`/api/join/${A}`);
+      expect(response.status).toBe(500);
+    });
+
+    it('GET /api/join and /api/end return 503 when the call waited too long', async () => {
+      const service = app.get(ChromectlService);
+      jest
+        .spyOn(service, 'join')
+        .mockRejectedValueOnce(new QueueTimeoutError(26_000));
+      jest
+        .spyOn(service, 'leave')
+        .mockRejectedValueOnce(new QueueTimeoutError(26_000));
+
+      const join = await request(app.getHttpServer()).get(`/api/join/${A}`);
+      const end = await request(app.getHttpServer()).get('/api/end');
+
+      expect(join.status).toBe(503);
+      expect(end.status).toBe(503);
     });
 
     it('GET /api/end leaves and returns the old string', async () => {

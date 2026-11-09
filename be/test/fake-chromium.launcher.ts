@@ -7,6 +7,10 @@ export class FakeChromiumLauncher {
   readonly children: EventEmitter[] = [];
   stopAllCalls = 0;
   failNextLaunch: Error | null = null;
+  /** The next child exits at once, like Chromium without an X server. */
+  exitAtStartNextLaunch = false;
+  /** Short, so tests do not wait the real 2 s. */
+  readonly startupCheckMs = 20;
 
   async launch(url: string): Promise<ChildProcess> {
     await Promise.resolve();
@@ -18,6 +22,10 @@ export class FakeChromiumLauncher {
     const child = new EventEmitter();
     this.launchedUrls.push(url);
     this.children.push(child);
+    if (this.exitAtStartNextLaunch) {
+      this.exitAtStartNextLaunch = false;
+      setImmediate(() => child.emit('exit', 1, null));
+    }
     return child as ChildProcess;
   }
 

@@ -79,7 +79,7 @@ You can also write the configuration by hand. In `~/.copilot/mcp-config.json`:
 { "mcpServers": { "webcam": { "type": "http", "url": "http://webcam.local/mcp" } } }
 ```
 
-The older `.vscode/mcp.json` format uses the key `servers` instead of `mcpServers`.
+In VS Code, the workspace file `.vscode/mcp.json` uses the key `servers` instead of `mcpServers`.
 
 ### 3.4 Another MCP client
 
@@ -127,7 +127,7 @@ for a check that repeats every 5 minutes. It needs no memory between runs.
 You control the Man Cave room webcam with the MCP tools of the server "webcam".
 Do this check now:
 
-1. Read my calendar from now until 10 minutes from now. Find my events in the room "Man Cave"
+1. Read my calendar from 10 minutes ago until 10 minutes from now. Find my events in the room "Man Cave"
    that have a Google Meet link.
 2. If such an event starts in the next 2 minutes or runs now:
    - Call the webcam tool status.
@@ -172,5 +172,7 @@ ask an assistant by hand.
 | The tool list is empty or the server shows "Failed to connect" | Check that you are in the office network. Open `http://webcam.local/mcp/guide` in a browser. If the guide does not open, the camera is off or not reachable. |
 | Claude Desktop shows no tools | Check that `node --version` works. Check that the config has `--allow-http`. Restart Claude Desktop completely. |
 | `join` says the camera is busy | Somebody else uses the camera. Ask them, or call `join` with `force: true` if you are sure. |
+| `join` says the camera could not start Chromium | Chromium on the camera ended at once, for example right after a reboot. Wait a minute and call `join` again. |
+| `join` or `leave` says the camera is busy with other requests | Several assistants called the camera at the same time. Nothing was changed. Call again in a minute. |
 | The camera joined but nobody sees it | Somebody in the meeting must admit "Meeting Room". The camera cannot see this. |
 | The meeting ended but `status` still shows it | Call `leave` with the meeting code. |

@@ -9,6 +9,7 @@ import {
   LaunchError,
   MeetingSession,
   NotInThatMeetingError,
+  QueueTimeoutError,
 } from '../chromectl/chromectl.service';
 import { InvalidMeetingError } from '../chromectl/meeting-code';
 import { REPO_ROOT } from '../paths';
@@ -104,7 +105,7 @@ export function buildMcpServer(service: ChromectlService): McpServer {
             { error: 'launch_failed', message: error.message },
           );
         }
-        return refuseInvalidOrRethrow(error);
+        return refuseCommonOrRethrow(error);
       }
     },
   );
@@ -150,7 +151,7 @@ export function buildMcpServer(service: ChromectlService): McpServer {
             { error: 'not_in_that_meeting', current },
           );
         }
-        return refuseInvalidOrRethrow(error);
+        return refuseCommonOrRethrow(error);
       }
     },
   );
@@ -195,12 +196,19 @@ function refuse(text: string, structuredContent: object): CallToolResult {
   return { ...ok(text, structuredContent), isError: true };
 }
 
-function refuseInvalidOrRethrow(error: unknown): CallToolResult {
+/** Errors that `join` and `leave` share. */
+function refuseCommonOrRethrow(error: unknown): CallToolResult {
   if (error instanceof InvalidMeetingError) {
     return refuse(error.message, {
       error: 'invalid_meeting',
       message: error.message,
     });
+  }
+  if (error instanceof QueueTimeoutError) {
+    return refuse(
+      'The camera is busy with other requests. Nothing was changed. Try again in a minute.',
+      { error: 'queue_timeout' },
+    );
   }
   throw error;
 }

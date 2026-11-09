@@ -1,5 +1,11 @@
-import { BadRequestException, Controller, Get, Param } from '@nestjs/common';
-import { ChromectlService } from './chromectl.service';
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  Param,
+  ServiceUnavailableException,
+} from '@nestjs/common';
+import { ChromectlService, QueueTimeoutError } from './chromectl.service';
 import { InvalidMeetingError } from './meeting-code';
 
 @Controller('/api')
@@ -20,14 +26,24 @@ export class ChromectlController {
       if (error instanceof InvalidMeetingError) {
         throw new BadRequestException(error.message);
       }
-      throw error;
+      throw toBusyOrSame(error);
     }
     return 'Joining meeting...';
   }
 
   @Get('end')
   async end() {
-    await this.chromectlService.leave({});
+    try {
+      await this.chromectlService.leave({});
+    } catch (error) {
+      throw toBusyOrSame(error);
+    }
     return 'Shuting down meeting...';
   }
+}
+
+function toBusyOrSame(error: unknown): unknown {
+  return error instanceof QueueTimeoutError
+    ? new ServiceUnavailableException(error.message)
+    : error;
 }

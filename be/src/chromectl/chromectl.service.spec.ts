@@ -4,7 +4,9 @@ import {
   ChromectlService,
   cleanName,
   LaunchError,
+  MAX_QUEUE_WAIT_MS,
   NotInThatMeetingError,
+  QueueTimeoutError,
 } from './chromectl.service';
 import { ChromiumLauncher } from './chromium.launcher';
 import { InvalidMeetingError } from './meeting-code';
@@ -227,6 +229,29 @@ describe('ChromectlService', () => {
     await expect(attempt).rejects.toBeInstanceOf(LaunchError);
     await expect(attempt).rejects.toThrow('spawn chromium-browser ENOENT');
     expect(service.status()).toEqual({ state: 'idle' });
+  });
+
+  it('refuses a call that waited too long for the lock and changes nothing', async () => {
+    const start = 1_000_000;
+    const now = jest.spyOn(Date, 'now').mockReturnValue(start);
+    const stopAll = launcher.stopAll.bind(launcher);
+    // The first call holds the lock while the clock passes the limit.
+    jest.spyOn(launcher, 'stopAll').mockImplementationOnce(async () => {
+      now.mockReturnValue(start + MAX_QUEUE_WAIT_MS + 1);
+      await stopAll();
+    });
+    try {
+      const first = joinA();
+      const second = service.join({ meeting: B, force: true, source: 'mcp' });
+
+      await expect(first).resolves.toMatchObject({ result: 'joined' });
+      await expect(second).rejects.toBeInstanceOf(QueueTimeoutError);
+      expect(launcher.launchedUrls).toEqual([`https://meet.google.com/${A}`]);
+      expect(service.status()).toMatchObject({ meetingCode: A });
+      await expect(service.leave()).resolves.toMatchObject({ result: 'left' });
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it('cleans startedBy', async () => {

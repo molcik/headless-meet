@@ -108,7 +108,7 @@ Effects:
 - `force: true` means: stop whatever Chromium runs, then launch the requested meeting. This is also true when the requested meeting is the current one (the user can use it to reload a stuck lobby).
 - `join` without `force` for the meeting that already runs returns `already_in_meeting` and does nothing. An automation that calls `join` twice is safe.
 - `join` without `force` while another meeting runs is refused with the current session.
-- The service runs `join` and `leave` one at a time with a promise-chain lock. Two parallel `join` calls cannot both launch. `status` does not take the lock and returns the current snapshot.
+- The service runs `join` and `leave` one at a time with a promise-chain lock. Two parallel `join` calls cannot both launch. `status` does not take the lock and returns the current snapshot. A call that waited more than 25 s for the lock is refused with `QueueTimeoutError` and changes nothing (round 2, test report bug 6).
 
 ### 2.7 `leave` protects other people's meetings (addition to `product.md`)
 
@@ -147,7 +147,7 @@ Reason: Jana's automation calls `leave` at the end of her meeting. If Petr force
 |---|---|---|
 | Claude Code | `claude mcp add --transport http --scope user webcam http://webcam.local/mcp` | Direct HTTP. Check with `claude mcp list` or `/mcp`. |
 | Claude Desktop | `claude_desktop_config.json`: `{"mcpServers":{"webcam":{"command":"npx","args":["-y","mcp-remote","http://webcam.local/mcp","--allow-http","--transport","http-only"]}}}` | "Custom connectors" do not work: Claude connects to them from Anthropic's cloud, which cannot reach the office LAN (Claude help center, "Get started with custom connectors using remote MCP", section "Network requirements"). The local bridge `mcp-remote` needs Node.js on the laptop. `--allow-http` is required for HTTP to a non-loopback host. |
-| VS Code, GitHub Copilot | `~/.copilot/mcp-config.json`: `{"mcpServers":{"webcam":{"type":"http","url":"http://webcam.local/mcp"}}}` or the command "MCP: Add Server", type HTTP | Direct HTTP. The older `.vscode/mcp.json` format uses `servers` instead of `mcpServers`. |
+| VS Code, GitHub Copilot | `~/.copilot/mcp-config.json`: `{"mcpServers":{"webcam":{"type":"http","url":"http://webcam.local/mcp"}}}` or the command "MCP: Add Server", type HTTP | Direct HTTP. The workspace file `.vscode/mcp.json` uses `servers` instead of `mcpServers`. |
 | Generic client | Streamable HTTP, URL `http://webcam.local/mcp`, no auth, no session | |
 
 If `webcam.local` does not resolve (some Windows set-ups), the guide tells the user to use the IP address of the Pi. See open question 4.
@@ -187,7 +187,8 @@ Results:
 | Same meeting, no force | false | `{ result: "already_in_meeting", session: MeetingSession }` | "The camera is already in meeting abc-defg-hij since <startedAt>." |
 | Busy | true | `{ error: "busy", current: MeetingSession }` | "The camera is in meeting xyz-abcd-efg since <startedAt>, started by <startedBy or 'unknown'> (<source>). Ask the user before you call join again with force=true." |
 | Invalid input | true | `{ error: "invalid_meeting", message }` | The message from section 2.5. |
-| Launch failed | true | `{ error: "launch_failed", message }` | "The camera could not start Chromium: <message>." The state stays `idle`. |
+| Launch failed | true | `{ error: "launch_failed", message }` | "The camera could not start Chromium: <message>." The state stays `idle`. Also when Chromium ends within 2 s after the start (round 2). |
+| Waited too long | true | `{ error: "queue_timeout" }` | "The camera is busy with other requests. Nothing was changed. Try again in a minute." (round 2) |
 
 ### 3.2 `leave`
 
@@ -208,6 +209,7 @@ Results:
 | Was idle | false | `{ result: "was_idle" }` | "The camera was idle. Nothing to do." |
 | Other meeting | true | `{ error: "not_in_that_meeting", current: MeetingSession }` | "The camera is not in meeting abc-defg-hij. It is in xyz-abcd-efg (started by ...). Nothing was changed." |
 | Invalid `meeting` | true | `{ error: "invalid_meeting", message }` | Section 2.5. |
+| Waited too long | true | `{ error: "queue_timeout" }` | As in `join` (round 2). |
 
 ### 3.3 `status`
 
@@ -289,12 +291,13 @@ Use `killall` by exact name, not `pkill -f` with a pattern.
 5. `child = await launcher.launch(meetingUrl)`. On error, log it and throw `LaunchError`. The state stays `idle`.
 6. Store `child` and set the state to `in_meeting` with `startedAt = new Date().toISOString()`.
 7. `child.once('exit', ...)`: if `child` is still the tracked process, set the state to `idle` and log the code and signal.
+   Then wait `launcher.startupCheckMs` (2 s). If `child` ended in this time, throw `LaunchError` (round 2, test report bug 1).
 8. Log one line: action, code, `startedBy`, `source`, `replaced`.
 
 `leave({ meeting })` inside the lock:
 
 1. If `meeting` is present, parse it. If the state is `in_meeting` with another code, throw `NotInThatMeetingError(current)`.
-2. If the state is `idle`: still call `stopAll()` (removes a hand-started Chromium, as `end.sh` does today) and return `was_idle`.
+2. If the state is `idle`: call `stopAll()` only when `meeting` is missing (removes a hand-started Chromium, as `end.sh` does today). With `meeting`, do not stop anything (round 2, test report bug 2). Return `was_idle`.
 3. Otherwise call `stopAll()`, set the state to `idle`, and return `left` with the old session.
 
 ## 5. Data flow
@@ -402,7 +405,7 @@ Checks:
 3. Set-up for Claude Code, Claude Desktop (local bridge, with the reason), VS Code with Copilot, and a generic client. Use the commands from section 2.11. Each set-up ends with a check: "ask the assistant: what is the camera doing?".
 4. Tool reference: `join`, `leave`, `status`, in short.
 5. Automation prompt, ready to paste. It is written for a check that repeats every 5 minutes, so it works without memory between runs:
-   - Read my calendar for now plus 10 minutes. Find events in the room "Man Cave" that have a Google Meet link.
+   - Read my calendar from 10 minutes ago until 10 minutes from now. Find events in the room "Man Cave" that have a Google Meet link.
    - If such an event starts within 2 minutes or runs now, call `status`. If the camera is idle, call `join` with the link and `requestedBy` set to my name. If the camera is in another meeting, do not use `force`. Tell me.
    - If such an event ended in the last 10 minutes and `status` shows its code, call `leave` with `meeting` set to that code.
 6. How to run the automation. It must run on the user's computer in the office network. Options: Claude Code `/loop 5m <prompt>` in an open session, or a local `cron` or `launchd` job with `claude -p "<prompt>"` every 5 minutes during working hours. Cloud schedulers (claude.ai, Cowork, Claude Code cloud routines) cannot reach the camera.
@@ -416,7 +419,7 @@ Checks:
 | Nobody admits the camera | `status` shows `in_meeting`. The tool text says that admission is not visible. |
 | Chromium crashes | The `exit` event sets `idle`. The next `join` works without `force`. |
 | Service restart or reboot | Chromium dies with the cgroup. The state starts as `idle`. This matches reality. |
-| Chromium started by hand on the Pi desktop | The state is `idle`. The next `join` or `leave` stops it with `stopAll`. |
+| Chromium started by hand on the Pi desktop | The state is `idle`. The next `join`, or `leave` without `meeting`, stops it with `stopAll`. |
 | Two assistants call `join` at the same moment | The lock runs them one after the other. The second gets `busy`. |
 | Jana's `leave` after Petr's force switch | With `meeting` set, the call is refused. Without `meeting`, Petr's meeting ends (as `product.md` describes). |
 | Automation calls `join` again for a running meeting | `already_in_meeting`, nothing happens. |

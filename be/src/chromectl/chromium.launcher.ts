@@ -5,6 +5,7 @@ import { EXTENSION_DIR } from '../paths';
 const CHROMIUM_BIN = process.env.CHROMIUM_BIN ?? '/usr/bin/chromium-browser';
 const CHROMIUM_PROCESS_NAME = 'chromium-browser';
 const STOP_TIMEOUT_MS = 10_000;
+const STARTUP_CHECK_MS = 2_000;
 
 /**
  * The only code that starts or stops Chromium. Tests replace it with a fake.
@@ -12,6 +13,9 @@ const STOP_TIMEOUT_MS = 10_000;
 @Injectable()
 export class ChromiumLauncher {
   private readonly logger = new Logger(ChromiumLauncher.name);
+
+  /** A Chromium that still runs after this time counts as started. */
+  readonly startupCheckMs = STARTUP_CHECK_MS;
 
   launch(url: string): Promise<ChildProcess> {
     return new Promise((resolve, reject) => {

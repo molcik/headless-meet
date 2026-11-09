@@ -124,7 +124,8 @@ On macOS `killall` has no `-w`, so `leave` does not stop the fake browser. This 
 3. Claude Desktop needs Node.js and `mcp-remote` on the laptop. Custom connectors cannot reach the LAN.
 4. The automation needs a computer in the office network. Cloud schedulers cannot reach the camera.
 5. A BE crash or a service restart ends a live meeting (Chromium is in the service cgroup).
-6. `join` and `leave` can take up to about 15 s, because `killall -w` waits for Chromium to stop.
+6. `join` and `leave` can take up to about 22 s, because `killall -w` waits for Chromium to stop and `join`
+   checks the start for 2 s. With calls in the queue, an answer takes up to about 47 s (round 2, fix 6).
 7. Node 18 is end-of-life. The polyfill (difference 1) is necessary until the Pi gets Node 20.
 8. The web UI shows "Loading..." for up to 60 s after Join. This is the existing frontend code.
 
@@ -151,3 +152,66 @@ Rollback:
 4. Run `sudo rm /etc/systemd/system/headless-meet.service`.
 5. Run `sudo systemctl daemon-reload && sudo systemctl reenable headless-meet`.
 6. Run `sudo systemctl reload nginx && sudo systemctl restart headless-meet`.
+
+## 6. Round 2: fixes from the test report
+
+Input: `test-report.md`, section 6, bugs 1 to 6. The tests from commit `69fb9d5` now use `it` instead of
+`it.failing` and pass.
+
+| Bug | Fix | Files |
+|---|---|---|
+| 1. `join` reports "joined" when Chromium ends at once | After the start, `join` waits `startupCheckMs` (2 s on the Pi). If Chromium ended in this time, `join` throws `LaunchError`. MCP gives `launch_failed`, the web UI gets 500. The state is `idle`. | `chromectl.service.ts`, `chromium.launcher.ts`, `test/fake-chromium.launcher.ts` |
+| 2. `leave` with a code stops an untracked Chromium | When the state is `idle`, `leave` calls `stopAll()` only without `meeting`. `/api/end` and `leave` without arguments still stop a hand-started Chromium. | `chromectl.service.ts`, architecture section 4.2 |
+| 3. `cleanName` can split a character | The cut at 80 is by code points (`Array.from`), not by UTF-16 units. | `chromectl.service.ts` |
+| 4. The automation prompt reads the wrong time window | Step 1 reads "from 10 minutes ago until 10 minutes from now". | `docs/mcp-guide.md`, architecture section 8 |
+| 5. The VS Code text is partly wrong | "In VS Code, the workspace file `.vscode/mcp.json` uses the key `servers` instead of `mcpServers`." | `docs/mcp-guide.md`, architecture section 2.11 |
+| 6. Queued calls can get a 504, and the camera still switches | A call that waited more than 25 s for the lock is refused with `QueueTimeoutError` and changes nothing. MCP gives `queue_timeout`, the web UI gets 503. | `chromectl.service.ts`, `mcp.tools.ts`, `chromectl.controller.ts`, guide section 7 |
+
+Decisions:
+
+1. **Bug 6: a wait limit in the service, not a longer nginx timeout.** A longer `proxy_read_timeout` only moves
+   the limit. With the wait limit, the longest answer is 25 s wait plus one switch (stop up to 20 s, start check
+   2 s), so about 47 s. This is below the 60 s nginx default, so `nginx.conf` does not change. The web UI gets
+   the same protection.
+2. **Bug 1: the check is in the service, not in the launcher.** The service already owns the exit handler. The
+   launcher only gives the time (`startupCheckMs`), so the fake launcher in the tests uses 20 ms.
+3. **Bug 1, side effect.** `join` holds the lock 2 s longer. If Chromium hands the URL to an old instance and
+   exits with code 0, `join` now reports `launch_failed`. This is correct: the camera does not track that meeting.
+   `stopAll()` with `killall -w` runs before the start, so this case needs a stop that timed out.
+
+New tests: `refuses a call that waited too long for the lock and changes nothing` (unit), and four e2e tests:
+Chromium that exits at once through MCP and `/api/join`, `queue_timeout` through MCP, 503 through `/api/join`
+and `/api/end`.
+
+### Results
+
+| Check | macOS, Node 26 | Docker, Node 18.19.0, npm 9.2.0 |
+|---|---|---|
+| `npx jest` (unit) | 61 passed | 61 passed |
+| `jest --config ./test/jest-e2e.json` | 23 passed | 23 passed |
+| `eslint` without `--fix`, `npm run build` (BE) | OK | OK |
+
+Pi-like stack (Docker `node:18.19.0-bookworm`, nginx with the repo `nginx.conf`, psmisc `killall`, a bash fake
+Chromium with the process name `chromium-browse`), client Claude Code (`claude mcp add --transport http
+--scope local`) and a JSON-RPC client:
+
+1. Bug 1: with a fake Chromium that exits with code 3, Claude Code got "The camera could not start Chromium:
+   Chromium exited right after the start (code=3, signal=null)." `status` gave `idle`. `/api/join` gave 500.
+2. Bug 2: a hand-started Chromium survived `leave` with `meeting: "jan-abcd-efg"` (`was_idle`). `leave` without
+   arguments stopped it.
+3. Bug 3: `requestedBy` = 79 × `a` + `😀` + `b` gave `startedBy` with 80 code points that ends with `a😀`.
+   The raw JSON has no `\ud83d`.
+4. Bug 6: the fake Chromium needs 5 s to stop. 8 parallel `join` calls with `force`: 4 joined, 4 got
+   `queue_timeout`, all HTTP 200, the longest answer 32 s, no 504. `status` showed the last joined meeting.
+   One Chromium process ran.
+5. Bugs 4 and 5: `GET /mcp/guide` through nginx shows the new texts.
+
+### How to check round 2 yourself
+
+1. In `be/`, run `npm test` and `npm run test:e2e`.
+2. Make a fake browser that ends at once: `printf '#!/bin/sh\nexit 3\n' > /tmp/fake-crash && chmod +x /tmp/fake-crash`.
+3. Start the BE: `PORT=3101 CHROMIUM_BIN=/tmp/fake-crash node dist/main`.
+4. Run `claude mcp add --transport http --scope local webcam-dev http://localhost:3101/mcp`.
+5. Ask Claude Code: "Join meeting abc-defg-hij." The answer must say that the camera could not start Chromium.
+6. Ask: "What is the camera doing?". The answer must be "idle".
+7. Remove the server: `claude mcp remove --scope local webcam-dev`. Stop the BE by PID.

@@ -64,7 +64,21 @@ export class LaunchError extends Error {
   }
 }
 
+export class QueueTimeoutError extends Error {
+  constructor(readonly waitedMs: number) {
+    super(`The call waited ${waitedMs} ms for other camera calls`);
+    this.name = 'QueueTimeoutError';
+  }
+}
+
 const MAX_NAME_LENGTH = 80;
+
+/**
+ * A call that waited this long for other calls is refused and changes nothing.
+ * Wait plus one switch (stop up to 20 s, start check 2 s) stays below the
+ * 60 s nginx proxy timeout, so the client never gets a 504 for a switch that still happens.
+ */
+export const MAX_QUEUE_WAIT_MS = 25_000;
 
 /** Trims the name, removes control characters and line breaks, cuts it to 80 characters. */
 export function cleanName(name: string | null | undefined): string | null {
@@ -74,7 +88,11 @@ export function cleanName(name: string | null | undefined): string | null {
     /[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g,
     ' ',
   );
-  const cut = cleaned.trim().slice(0, MAX_NAME_LENGTH).trim();
+  // Cut by code points, so an emoji at the limit is not split into a lone surrogate.
+  const cut = Array.from(cleaned.trim())
+    .slice(0, MAX_NAME_LENGTH)
+    .join('')
+    .trim();
   return cut.length > 0 ? cut : null;
 }
 
@@ -139,6 +157,15 @@ export class ChromectlService {
         this.onBrowserExit(child, code, signal),
       );
 
+      // Chromium that cannot start (no X server, profile lock) ends within a moment.
+      // The exit handler above already set the state to idle.
+      const exit = await exitWithin(child, this.launcher.startupCheckMs);
+      if (exit) {
+        const message = `Chromium exited right after the start (code=${exit.code}, signal=${exit.signal})`;
+        this.logger.error(`join ${meetingCode} failed: ${message}`);
+        throw new LaunchError(message);
+      }
+
       this.logger.log(
         `join ${meetingCode} startedBy=${startedBy ?? '-'} source=${request.source}` +
           ` replaced=${current?.meetingCode ?? '-'}`,
@@ -159,15 +186,17 @@ export class ChromectlService {
         throw new NotInThatMeetingError(requestedCode, { ...current });
       }
 
-      // Also stops a Chromium that someone started by hand on the Pi desktop.
-      await this.launcher.stopAll();
-      this.session = null;
-      this.browser = null;
-
       if (!current) {
+        // Without a code, also stop a Chromium that someone started by hand on the Pi desktop.
+        // With a code, the caller asked for one meeting only, so a hand-started Chromium stays.
+        if (!requestedCode) await this.launcher.stopAll();
         this.logger.log('leave: the camera was idle');
         return { result: 'was_idle' };
       }
+
+      await this.launcher.stopAll();
+      this.session = null;
+      this.browser = null;
       this.logger.log(`leave ${current.meetingCode}`);
       return { result: 'left', session: current };
     });
@@ -188,8 +217,34 @@ export class ChromectlService {
   }
 
   private exclusive<T>(task: () => Promise<T>): Promise<T> {
-    const result = this.queue.then(task);
+    const queuedAt = Date.now();
+    const result = this.queue.then(() => {
+      const waitedMs = Date.now() - queuedAt;
+      if (waitedMs > MAX_QUEUE_WAIT_MS) {
+        this.logger.warn(`call refused after ${waitedMs} ms in the queue`);
+        throw new QueueTimeoutError(waitedMs);
+      }
+      return task();
+    });
     this.queue = result.catch(() => undefined);
     return result;
   }
+}
+
+/** Resolves with the exit of `child`, or with null when it still runs after `ms`. */
+function exitWithin(
+  child: ChildProcess,
+  ms: number,
+): Promise<{ code: number | null; signal: NodeJS.Signals | null } | null> {
+  return new Promise((resolve) => {
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      clearTimeout(timer);
+      resolve({ code, signal });
+    };
+    const timer = setTimeout(() => {
+      child.off('exit', onExit);
+      resolve(null);
+    }, ms);
+    child.once('exit', onExit);
+  });
 }
