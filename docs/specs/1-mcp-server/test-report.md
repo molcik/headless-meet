@@ -232,7 +232,7 @@ systemd reaps the processes.
 | # | Result | Evidence |
 |---|---|---|
 | 1 | Pass | `claude mcp list`: `webcam-t2: http://localhost:8281/mcp (HTTP) - ✔ Connected`. Claude Code lists `join`, `leave`, `status`. |
-| 2 | Pass | 38 bad inputs from section 4.1 plus `../` paths, CRLF and `/lookup/abc` give `invalid_meeting`. 9 good inputs give `joined`. The launch log has only `https://meet.google.com/abc-defg-hij --use-fake-ui-for-media-stream --load-extension=/home/pi/hm/be/src/chromectl/chrome-extension`. `/tmp/pwned` does not exist. Wrong types give `-32602`. |
+| 2 | Pass | 37 bad inputs (the list of section 4.1 plus `../` paths, CRLF and `/lookup/abc`) give `invalid_meeting`. 9 good inputs give `joined`. The launch log has only `https://meet.google.com/abc-defg-hij --use-fake-ui-for-media-stream --load-extension=/home/pi/hm/be/src/chromectl/chrome-extension`. `/tmp/pwned` does not exist. Wrong types give `-32602`. |
 | 3 | Pass | Same arguments as in round 1. `status` shows the code and `startedAt`. |
 | 4 | Pass | Busy refusal names `jan-abcd-efg`, the start time and "Jana (mcp)". `force` switches, 1 process. Jana's `leave` with her code after Petr's switch gives `not_in_that_meeting`. |
 | 5 | Pass | `leave` gives `left`, idle `leave` gives `was_idle`. |
